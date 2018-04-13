@@ -22,5 +22,7 @@ setup(
     packages=[
         'djstripe',
     ],
+    package_dir={'djstripe': 'djstripe'},
+    include_package_data=True,
     long_description=readme + '\n\n' + history
 )
