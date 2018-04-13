@@ -19,5 +19,8 @@ history = open('HISTORY.rst').read().replace('.. :changelog:', '')
 setup(
     name='dj-stripe',
     version='1.0.0.post1',
+    packages=[
+        'djstripe',
+    ],
     long_description=readme + '\n\n' + history
 )
