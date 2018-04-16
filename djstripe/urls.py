@@ -33,6 +33,11 @@ app_name = "djstripe"
 urlpatterns = [
     # HTML views
     url(
+        r"^$",
+        views.AccountView.as_view(),
+        name="account"
+    ),
+    url(
         r"^subscribe/$",
         views.SubscribeView.as_view(),
         name="subscribe"
@@ -41,6 +46,22 @@ urlpatterns = [
         r"^cancel/subscription/$",
         views.CancelSubscriptionView.as_view(),
         name="cancel_subscription"
+    ),
+
+    url(
+        r"^confirm/(?P<plan_id>.+)/$",
+        views.ConfirmFormView.as_view(),
+        name="confirm"
+    ),
+    url(
+        r"^change/cards/$",
+        views.ChangeCardView.as_view(),
+        name="change_card"
+    ),
+    url(
+        r"^history/$",
+        views.HistoryView.as_view(),
+        name="history"
     ),
 
     # Webhook

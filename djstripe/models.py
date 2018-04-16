@@ -2494,7 +2494,10 @@ class Plan(StripeObject):
     stripe_class = stripe.Plan
     stripe_dashboard_item_name = "plans"
 
-    amount = StripeCurrencyField(help_text="Amount to be charged on the interval specified.")
+    amount = StripeCurrencyField(
+        null=True,
+        help_text="Amount to be charged on the interval specified."
+    )
     currency = StripeCharField(max_length=3, help_text="Three-letter ISO currency code")
     interval = StripeCharField(
         max_length=5,
