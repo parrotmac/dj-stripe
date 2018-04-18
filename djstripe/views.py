@@ -10,6 +10,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import logging
 
+import stripe
 from braces.views import FormValidMessageMixin, SelectRelatedMixin
 
 from django.contrib import messages
@@ -26,9 +27,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import FormView, TemplateView, View, DetailView
 from stripe import StripeError
 
+from djstripe.sync import sync_subscriber
 from . import settings as djstripe_settings
 from .enums import SubscriptionStatus
-from .forms import CancelSubscriptionForm, PlanForm
+from .forms import CancelSubscriptionForm, PlanForm, QuantityPlanForm
 from .mixins import SubscriptionMixin, PaymentsContextMixin
 from .models import Customer, WebhookEventTrigger, Plan
 
@@ -92,6 +94,7 @@ class ConfirmFormView(LoginRequiredMixin, FormValidMessageMixin, SubscriptionMix
         """Return ConfirmFormView's context with plan_id."""
         context = super(ConfirmFormView, self).get_context_data(**kwargs)
         context['plan'] = Plan.objects.get(pk=self.kwargs['plan_id'])
+        context['plan_quantity'] = self.kwargs.get('quantity', 1)
         return context
 
     def post(self, request, *args, **kwargs):
@@ -117,6 +120,159 @@ class ConfirmFormView(LoginRequiredMixin, FormValidMessageMixin, SubscriptionMix
         else:
             return self.form_invalid(form)
 
+
+class QuantityConfirmView(ConfirmFormView):
+
+    form_class = QuantityPlanForm
+    template_name = "djstripe/quantity_confirm_form.html"
+
+    def get(self, request, *args, **kwargs):
+        """Override ConfirmFormView GET to perform extra validation.
+
+        - Returns 404 when no plan exists.
+        - Redirects to djstripe:subscribe when customer is already subscribed to this plan.
+        """
+        plan_id = self.kwargs['plan_id']
+
+        if not Plan.objects.filter(pk=plan_id).exists():
+            return HttpResponseNotFound()
+
+        customer, _created = Customer.get_or_create(
+            subscriber=djstripe_settings.subscriber_request_callback(self.request)
+        )
+
+        if (customer.subscription and str(customer.subscription.plan.id) == plan_id and
+                customer.subscription.is_valid() and str(customer.subscription.quantity) == kwargs.get('quantity')):
+            message = "You already subscribed to this plan"
+            messages.info(request, message, fail_silently=True)
+            return redirect("djstripe:subscribe")
+
+        return super(ConfirmFormView, self).get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        """
+        Handle POST requests.
+
+        Instantiates a form instance with the passed POST variables and
+        then checks for validity.
+        """
+        form_class = self.get_form_class()
+        form = self.get_form(form_class)
+        if form.is_valid():
+            try:
+                customer, _created = Customer.get_or_create(
+                    subscriber=djstripe_settings.subscriber_request_callback(self.request)
+                )
+                customer.add_card(self.request.POST.get("stripe_token"))
+                customer.subscribe(form.cleaned_data["plan"], quantity=kwargs.get('quantity'))
+            except StripeError as exc:
+                form.add_error(None, str(exc))
+                return self.form_invalid(form)
+            return self.form_valid(form)
+        else:
+            return self.form_invalid(form)
+
+
+class ChangePlanQuantityView(LoginRequiredMixin, FormValidMessageMixin, SubscriptionMixin, FormView):
+    """
+    A view used to change a Customers plan.
+
+    TODO: Work in a trial_days kwarg.
+
+    Also, this should be combined with ConfirmFormView.
+    """
+
+    form_class = QuantityPlanForm
+    template_name = "djstripe/quantity_confirm_form.html"
+    success_url = reverse_lazy("djstripe:history")
+    form_valid_message = "You've just changed your plan!"
+
+    def post(self, request, *args, **kwargs):
+        """Handle a Customer changing a plan.
+
+        Handles upgrading a plan as well. Throws an error when Customer is not subscribed to any plan.
+        """
+        form = QuantityPlanForm(request.POST)
+
+        customer, _created = Customer.get_or_create(
+            subscriber=djstripe_settings.subscriber_request_callback(self.request)
+        )
+
+        if not customer.subscription:
+            form.add_error(None, "You must already be subscribed to a plan before you can change it.")
+            return self.form_invalid(form)
+
+        if form.is_valid():
+            try:
+                selected_plan = form.cleaned_data["plan"]
+                quantity = form.cleaned_data['plan_quantity']
+
+                if int(quantity) > customer.subscription.quantity:
+                    customer.subscription.update(plan=selected_plan, prorate=True, quantity=quantity)
+                else:
+                    customer.subscription.update(plan=selected_plan, quantity=quantity)
+                stripe.Invoice.create(
+                    customer=customer.stripe_id
+                )
+            except StripeError as exc:
+                form.add_error(None, str(exc))
+                return self.form_invalid(form)
+            return self.form_valid(form)
+        else:
+            return self.form_invalid(form)
+
+
+
+class ChangePlanView(LoginRequiredMixin, FormValidMessageMixin, SubscriptionMixin, FormView):
+    """
+    A view used to change a Customers plan.
+
+    TODO: Work in a trial_days kwarg.
+
+    Also, this should be combined with ConfirmFormView.
+    """
+
+    form_class = PlanForm
+    template_name = "djstripe/confirm_form.html"
+    success_url = reverse_lazy("djstripe:history")
+    form_valid_message = "You've just changed your plan!"
+
+    def post(self, request, *args, **kwargs):
+        """Handle a Customer changing a plan.
+
+        Handles upgrading a plan as well. Throws an error when Customer is not subscribed to any plan.
+        """
+        form = PlanForm(request.POST)
+
+        customer, _created = Customer.get_or_create(
+            subscriber=djstripe_settings.subscriber_request_callback(self.request)
+        )
+
+        if not customer.subscription:
+            form.add_error(None, "You must already be subscribed to a plan before you can change it.")
+            return self.form_invalid(form)
+
+        if form.is_valid():
+            try:
+                selected_plan = form.cleaned_data["plan"]
+
+                # When a customer upgrades their plan, and DJSTRIPE_PRORATION_POLICY_FOR_UPGRADES is set to True,
+                # we force the proration of the current plan and use it towards the upgraded plan,
+                # no matter what DJSTRIPE_PRORATION_POLICY is set to.
+                if hasattr(djstripe_settings, 'PRORATION_POLICY_FOR_UPGRADES') and djstripe_settings.PRORATION_POLICY_FOR_UPGRADES :
+                    # Is it an upgrade?
+                    if selected_plan.amount > customer.subscription.plan.amount:
+                        customer.subscription.update(plan=selected_plan, prorate=True)
+                    else:
+                        customer.subscription.update(plan=selected_plan)
+                else:
+                    customer.subscription.update(plan=selected_plan)
+            except StripeError as exc:
+                form.add_error(None, str(exc))
+                return self.form_invalid(form)
+            return self.form_valid(form)
+        else:
+            return self.form_invalid(form)
 
 
 class CancelSubscriptionView(LoginRequiredMixin, SubscriptionMixin, FormView):
@@ -248,6 +404,20 @@ class HistoryView(LoginRequiredMixin, SelectRelatedMixin, DetailView):
 # ============================================================================ #
 #                                 Web Services                                 #
 # ============================================================================ #
+
+@method_decorator(csrf_exempt, name="dispatch")
+class SyncHistoryView(LoginRequiredMixin, View):
+    """TODO: Needs to be refactored to leverage context data."""
+
+    template_name = "djstripe/includes/_history_table.html"
+
+    def post(self, request, *args, **kwargs):
+        """Render the template while injecting extra context."""
+        return render(
+            request,
+            self.template_name,
+            {"customer": sync_subscriber(djstripe_settings.subscriber_request_callback(request))}
+        )
 
 
 @method_decorator(csrf_exempt, name="dispatch")

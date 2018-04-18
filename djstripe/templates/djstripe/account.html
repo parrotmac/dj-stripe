@@ -58,6 +58,7 @@
                     <thead>
                         <tr>
                             <th>Plan</th>
+                            <th>Quantity</th>
                             <th>Interval</th>
                             <th>Description</th>
                             <th></th>
@@ -73,6 +74,13 @@
                             {% endif %}
                         {% endif %}>
                             <td>{{ plan.name }}</td>
+                            <td>
+                                {% if plan == subscription.plan %}
+                                    {{ subscription.quantity }}
+                                {% else %}
+                                    <em>n/a</em>
+                                {% endif %}
+                            </td>
                             <td>{{ plan.interval.title }}ly</td>
                             <td>{{ plan.description }}</td>
                             <td>

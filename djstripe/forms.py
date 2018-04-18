@@ -20,6 +20,11 @@ class PlanForm(forms.Form):
     plan = forms.ModelChoiceField(queryset=Plan.objects.all())
 
 
+class QuantityPlanForm(PlanForm):
+    """A plan form that allows setting the quantity attribute for a Plan."""
+    plan_quantity = forms.IntegerField(initial=1, required=True)
+
+
 class CancelSubscriptionForm(forms.Form):
     """A form used when canceling a Subscription."""
 

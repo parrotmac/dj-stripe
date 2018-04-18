@@ -47,11 +47,25 @@ urlpatterns = [
         views.CancelSubscriptionView.as_view(),
         name="cancel_subscription"
     ),
-
     url(
-        r"^confirm/(?P<plan_id>.+)/$",
+        r"^confirm/(?P<plan_id>\d+)/quantity/(?P<quantity>\d+)/$",
+        views.QuantityConfirmView.as_view(),
+        name="quantity_confirm"
+    ),
+    url(
+        r"^confirm/(?P<plan_id>\d+)/$",
         views.ConfirmFormView.as_view(),
         name="confirm"
+    ),
+    url(
+        r"^change/plan/$",
+        views.ChangePlanView.as_view(),
+        name="change_plan"
+    ),
+    url(
+        r"^change/plan/qty/$",
+        views.ChangePlanQuantityView.as_view(),
+        name="change_plan_qty"
     ),
     url(
         r"^change/cards/$",
@@ -62,6 +76,13 @@ urlpatterns = [
         r"^history/$",
         views.HistoryView.as_view(),
         name="history"
+    ),
+
+    # Web services
+    url(
+        r"^a/sync/history/$",
+        views.SyncHistoryView.as_view(),
+        name="sync_history"
     ),
 
     # Webhook
