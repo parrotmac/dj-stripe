@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block centered_content %}
+    <details>
+    <summary>Actions</summary>
+    <p>{{ default_plan_id }}</p>
+    </details>
+
+    <details>
+    <summary>Default Non-Trial Plan ID</summary>
+    <p>{{ default_plan_id }}</p>
+    </details>
+
+    <details>
+    <summary>Customer Count</summary>
+    <p>{{ customer_count }}</p>
+    </details>
+{% endblock %}
